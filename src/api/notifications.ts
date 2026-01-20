@@ -2,7 +2,6 @@ import { Request, Response } from 'express';
 import Joi from 'joi';
 import { pool } from '../config';
 import { notificationQueue } from '../queue/notificationQueue';
-import { checkIdempotency } from '../middlewares/idempotency';
 
 const notificationSchema = Joi.object({
   idempotency_key: Joi.string().uuid().required(),
@@ -24,19 +23,30 @@ export async function createNotification(req: Request, res: Response) {
 
   const { idempotency_key, user_id, channel, payload } = value;
 
-  // Check idempotency
-  const exists = await checkIdempotency(idempotency_key);
-  if (exists) {
-    return res.status(200).json({ message: 'Notification already processed' });
+  let notificationId: string;
+
+  try {
+    // Attempt INSERT notification
+    const insertResult = await pool.query(
+      'INSERT INTO notifications (idempotency_key, user_id, channel, payload) VALUES ($1, $2, $3, $4) RETURNING id',
+      [idempotency_key, user_id, channel, JSON.stringify(payload)]
+    );
+    notificationId = insertResult.rows[0].id;
+  } catch (error: any) {
+    if (error.code === '23505') { // unique_violation
+      // Fetch existing notification
+      const fetchResult = await pool.query(
+        'SELECT id FROM notifications WHERE idempotency_key = $1',
+        [idempotency_key]
+      );
+      if (fetchResult.rows.length === 0) {
+        throw new Error('Unexpected: no row found after unique violation');
+      }
+      notificationId = fetchResult.rows[0].id;
+    } else {
+      throw error;
+    }
   }
-
-  // Insert notification
-  const insertResult = await pool.query(
-    'INSERT INTO notifications (idempotency_key, user_id, channel, payload) VALUES ($1, $2, $3, $4) RETURNING id',
-    [idempotency_key, user_id, channel, JSON.stringify(payload)]
-  );
-
-  const notificationId = insertResult.rows[0].id;
 
   // Enqueue job
   await notificationQueue.add('send-notification', { notificationId });

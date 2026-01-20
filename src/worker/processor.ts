@@ -43,10 +43,10 @@ const worker = new Worker('notifications', async (job) => {
       ['sent', notificationId]
     );
   } catch (error) {
-    // Update status to failed
+    // Update status to failed, increment attempts, set last_error
     await pool.query(
-      'UPDATE notifications SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-      ['failed', notificationId]
+      'UPDATE notifications SET status = $1, attempts = attempts + 1, last_error = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
+      ['failed', (error as Error).message, notificationId]
     );
     throw error;
   }

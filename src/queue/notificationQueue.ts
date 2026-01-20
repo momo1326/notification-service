@@ -19,5 +19,5 @@ export const deadLetterQueue = new Queue('dead-notifications', {
 });
 
 export interface NotificationJobData {
-  notificationId: number;
+  notificationId: string;
 }

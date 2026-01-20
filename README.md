@@ -61,3 +61,10 @@ Queues a notification for sending.
 ```
 
 **Response:** 202 Accepted
+
+**Flow:**
+- Validate request
+- Attempt INSERT notification (idempotency_key, status=pending)
+- If unique violation: fetch existing notification
+- Enqueue job with notification id
+- Return 202 Accepted
